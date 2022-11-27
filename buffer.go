@@ -14,6 +14,7 @@ type Buffer struct {
 	cacheDocument   *Document
 	preferredColumn int // Remember the original column for the next up/down movement.
 	lastKeyStroke   Key
+	ShouldExit      bool
 }
 
 // Text returns string of the current line.

@@ -35,11 +35,16 @@ type Prompt struct {
 	completionOnDown  bool
 	exitChecker       ExitChecker
 	skipTearDown      bool
+	cancelled         bool
 }
 
 // Exec is the struct contains user input context.
 type Exec struct {
 	input string
+}
+
+func (p *Prompt) IsCancelled() bool {
+	return p.cancelled
 }
 
 // Run starts prompt.
@@ -129,9 +134,12 @@ func (p *Prompt) feed(b []byte) (shouldExit bool, exec *Exec) {
 			p.history.Add(exec.input)
 		}
 	case ControlC:
-		p.renderer.BreakLine(p.buf)
-		p.buf = NewBuffer()
-		p.history.Clear()
+		if kb := p.findKeyBinding(ControlC); kb == nil {
+			// no custom keybinds set for this key, do default stuff
+			p.renderer.BreakLine(p.buf)
+			p.buf = NewBuffer()
+			p.history.Clear()
+		}
 	case Up, ControlP:
 		if !completing { // Don't use p.completion.Completing() because it takes double operation when switch to selected=-1.
 			if newBuf, changed := p.history.Older(p.buf); changed {
@@ -146,9 +154,12 @@ func (p *Prompt) feed(b []byte) (shouldExit bool, exec *Exec) {
 			return
 		}
 	case ControlD:
-		if p.buf.Text() == "" {
-			shouldExit = true
-			return
+		if kb := p.findKeyBinding(ControlC); kb == nil {
+			// no custom keybinds set for this key, do default stuff
+			if p.buf.Text() == "" {
+				shouldExit = true
+				return
+			}
 		}
 	case NotDefined:
 		if p.handleASCIICodeBinding(b) {
@@ -206,16 +217,27 @@ func (p *Prompt) handleKeyBinding(key Key) bool {
 	}
 
 	// Custom key bindings
-	for i := range p.keyBindings {
-		kb := p.keyBindings[i]
-		if kb.Key == key {
-			kb.Fn(p.buf)
+	if kb := p.findKeyBinding(key); kb != nil {
+		kb.Fn(p.buf)
+		if p.buf.ShouldExit {
+			p.cancelled = true
+			return true
 		}
 	}
 	if p.exitChecker != nil && p.exitChecker(p.buf.Text(), false) {
 		shouldExit = true
 	}
 	return shouldExit
+}
+
+func (p *Prompt) findKeyBinding(key Key) *KeyBind {
+	for i := range p.keyBindings {
+		kb := p.keyBindings[i]
+		if kb.Key == key {
+			return &kb
+		}
+	}
+	return nil
 }
 
 func (p *Prompt) handleASCIICodeBinding(b []byte) bool {
